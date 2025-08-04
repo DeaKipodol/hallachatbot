@@ -1,4 +1,4 @@
-from  chatbot.common  import client, model, makeup_response
+from  common  import client, model, makeup_response
 import json
 import requests
 from pprint import pprint
@@ -191,7 +191,7 @@ class FunctionCalling:
     
 
     def run(self, analyzed,context):
- 
+        ''' analyzed_dict: 함수 호출 정보, context: 현재 문맥'''
         context.append(analyzed)
         for tool_call in analyzed:
             if tool_call.get("type") != "function_call":
@@ -224,23 +224,7 @@ class FunctionCalling:
                 return makeup_response("[run 오류입니다]")
         return client.responses.create(model=self.model,input=context).model_dump()
     
-    def run_report(self, analyzed_dict, context):
-        func_name = analyzed_dict["function_call"]["name"]
-        func_to_call = self.available_functions[func_name]        
-        try:
-            func_args = json.loads(analyzed_dict["function_call"]["arguments"])
-            # 챗GPT가 알려주는 매개변수명과 값을 입력값으로하여 실제 함수를 호출한다.
-            func_response = func_to_call(**func_args)
-            context.append({
-                "role": "function", 
-                "name": func_name, 
-                "content": str(func_response)
-            })
-            return client.chat.completions.create(model=self.model,messages=context).model_dump()            
-        except Exception as e:
-            print("Error occurred(run):",e)
-            return makeup_response("[run 오류입니다]")
-
+   
     def call_function(self, analyzed_dict):        
         func_name = analyzed_dict["function_call"]["name"]
         func_to_call = self.available_functions[func_name]                

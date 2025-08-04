@@ -1,6 +1,7 @@
 import math
-from chatbot.common import model ,makeup_response ,client
-
+# 상대 임포트 대신 절대 임포트 사용
+from common import model, makeup_response, client
+from functioncalling import FunctionCalling, tools
 class ChatbotStream:
     def __init__(self, model,system_role,instruction,**kwargs):
         """
@@ -14,8 +15,7 @@ class ChatbotStream:
           - assistant 이름
         """
         self.context = [{"role": "system","content": system_role}]
-        # 서브 대화방 문맥을 저장할 딕셔너리
-        #현재 대화 맥락을 인지,(필드대화냐 메인대화냐=> 즉 챗봇클래스 재활용)       
+               
         self.current_field = "main"
         
         self.model = model
@@ -35,43 +35,19 @@ class ChatbotStream:
         assistant_message = {
             "role": "user",
             "content": message,
-            "saved": False
         }
         if self.current_field == "main":
             self.context.append(assistant_message)
 
     #전송부
-    def _send_request_Stream(self,temp_context=None):
+    def _send_request_Stream(self):
         
         completed_text = ""
-
-        if temp_context is None:
-           current_context = self.get_current_context()
-           openai_context = self.to_openai_context(current_context)
-           stream = client.responses.create(
-            model=self.model,
-            input=openai_context,  
-            top_p=1,
-            stream=True,
-            
-            text={
-                "format": {
-                    "type": "text"  # 또는 "json_object" 등 (Structured Output 사용 시)
-                }
-            }
-                )
-        else:  
-           stream = client.responses.create(
-            model=self.model,
-            input=temp_context,  # user/assistant 역할 포함된 list 구조
-            top_p=1,
-            stream=True,
-            text={
-                "format": {
-                    "type": "text"  # 또는 "json_object" 등 (Structured Output 사용 시)
-                }
-            }
-                )
+        stream = client.responses.create(
+        model=self.model,
+        input=self.context,  
+        stream=True,
+        )   
         
         loading = True  # delta가 나오기 전까지 로딩 중 상태 유지       
         for event in stream:
@@ -126,7 +102,7 @@ class ChatbotStream:
         response_message = {
             "role" : response['choices'][0]['message']["role"],
             "content" : response['choices'][0]['message']["content"],
-            "saved" : False
+            
         }
         self.context.append(response_message)
 
@@ -140,7 +116,7 @@ class ChatbotStream:
             assistant_message = {
             "role": "assistant",
             "content": response,
-            "saved": False
+           
         }
             self.context.append(assistant_message)
 
@@ -174,7 +150,96 @@ class ChatbotStream:
                 self.context = [self.context[0]] + self.context[remove_size+1:]
         except Exception as e:
             print(f"handle_token_limit exception:{e}")
+    def to_openai_context(self, context):
+        return [{"role":v["role"], "content":v["content"]} for v in context]
+
+if __name__ == "__main__":
+    '''실행흐름
+    단계	내용
+1️⃣	사용자 입력 받음 (user_input)
+2️⃣	→ add_user_message_in_context() 로 user 메시지를 문맥에 추가
+3️⃣	→ analyze() 로 함수 호출이 필요한지 판단
+4️⃣	→ 필요하면 함수 실행 + 결과를 temp_context에 추가
+5️⃣	→ chatbot._send_request_Stream(temp_context) 로 응답 받음
+6️⃣	✅ streamed_response 결과를 직접 add_response_stream()으로 수동 저장'''
+    system_role = "당신은 친절하고 유능한 챗봇입니다."
+    instruction = "당신은 사용자의 질문에 답변하는 역할을 합니다. 질문에 대한 답변을 제공하고, 필요한 경우 함수 호출을 통해 추가 정보를 검색할 수 있습니다. 사용자의 질문에 대해 정확하고 유용한 답변을 제공하세요."
+    # ChatbotStream 인스턴스 생성
+    chatbot = ChatbotStream(
+        model.advanced,
+        system_role=system_role,
+        instruction=instruction,
+        user="대기",
+        assistant="memmo")
+    func_calling=FunctionCalling(model.advanced)
+    print("===== Chatbot Started =====")
+    print("초기 context:", chatbot.context)
+    print("사용자가 'exit'라고 입력하면 종료합니다.\n")
+    
+   # 출력: {}
+    
+
+    while True:
+        user_input = input("User > ")
+        if user_input.strip().lower() == "exit":
+            print("Chatbot 종료.")
+            
+
+        # 사용자 메시지를 문맥에 추가
+        chatbot.add_user_message_in_context(user_input)
+
+        # 사용자 입력 분석 (함수 호출 여부 확인)
+        analyzed = func_calling.analyze(user_input, tools)
+
+        temp_context = chatbot.to_openai_context(chatbot.context[:])
+
+        for tool_call in analyzed:  # analyzed는 list of function_call dicts
+            if tool_call.type != "function_call":
+                continue
+            
+            func_name = tool_call.name
+            func_args = json.loads(tool_call.arguments)
+            call_id = tool_call.call_id
+
+            func_to_call = func_calling.available_functions.get(func_name)
+            if not func_to_call:
+                print(f"[오류] 등록되지 않은 함수: {func_name}")
+                continue
 
 
+            try:
+               
+                function_call_msg = {
+                    "type": "function_call",  # 고정
+                    "call_id": call_id,  # 딕셔너리 내에 있거나 key가 다를 수 있으니 주의
+                    "name": func_name,
+                    "arguments": tool_call.arguments  # dict -> JSON string
+                }
+                print(f"함수 호출 메시지: {function_call_msg}")
+                if func_name == "search_internet":
+                    # context는 이미 run 메서드의 매개변수로 받고 있음
+                    func_response = func_to_call(chat_context=chatbot.context[:], **func_args)
+                else:
+                    func_response=func_to_call(**func_args)
+                
 
+                temp_context.extend([
+                    function_call_msg,
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": str(func_response)
+                }
+            ])
+              #  print("함수 실행후 임시문맥:{}".format(temp_context))
 
+            except Exception as e:
+                print(f"[함수 실행 오류] {func_name}: {e}")
+
+        # 함수 결과 포함 응답 요청
+        streamed_response = chatbot._send_request_Stream()
+        temp_context = None
+        chatbot.add_response_stream(streamed_response)
+        print(chatbot.context)
+
+    # === 분기 처리 끝 ===

@@ -2,8 +2,13 @@ import os
 from openai import OpenAI
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-# pytz는 특정한 데이터베이스로부터 timezone 정의를 불러옵니다. 예를 들어, 서울 시간은 utc보다 9시간 빠르다는 정보
 import pytz
+# 추가: dotenv 임포트
+from dotenv import load_dotenv
+
+# 추가: apikey.env 파일 로드
+load_dotenv("apikey.env")  # 상위 디렉토리의 apikey.env 파일
+
 @dataclass(frozen=True)
 class Model: 
     basic: str = "gpt-3.5-turbo-1106"
@@ -19,7 +24,7 @@ class EmbeddingModel:
     
 model = Model()
 embedding_model = EmbeddingModel()
-api_key=os.getenv("OPENAI_API_KEY")
+api_key=os.getenv("OPENAI_API_KEY")  # 이제 정상적으로 로드됨
 client = OpenAI(api_key=api_key, max_retries=1)
 
 def makeup_response(message, finish_reason="ERROR"):

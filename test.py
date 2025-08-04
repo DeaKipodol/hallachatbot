@@ -1,7 +1,7 @@
 import os
 import sys
 from loding.documentLoding import documents, extract_chunks_finditer, extract_star_tables
-from mongodbConnect import insert_chunks_to_mongo, collection
+from loding.mongodbConnect import insert_chunks_to_mongo, collection
 from typing import List, Dict
 from loding.vector_db_upload import upload_chunks_to_pinecone, index, get_embedding
 from loding.vector_db_upload import pc, index_name
