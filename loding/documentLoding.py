@@ -2,6 +2,8 @@ import os
 from dotenv import load_dotenv
 from typing import List, Dict
 import re
+from pathlib import Path
+
 load_dotenv("apikey.env")  # .env 로드
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 os.environ["PINECONE_API_KEY"] = os.getenv("PINECONE_API_KEY")
@@ -11,7 +13,12 @@ print("환경 설정 완료!")
 
 from llama_index.core import SimpleDirectoryReader
 
-reader = SimpleDirectoryReader(input_dir="C:/Users/rlaeorl/Desktop/한라대llm/pdfs")
+# 현재 파일의 디렉토리 기준으로 상대 경로 계산
+current_dir = Path(__file__).parent  # /Users/kimdaegi/Desktop/backend/app/loding
+project_root = current_dir.parent    # /Users/kimdaegi/Desktop/backend/app
+pdfs_dir = project_root / "pdfs"     # /Users/kimdaegi/Desktop/backend/app/pdfs
+
+reader = SimpleDirectoryReader(input_dir=str(pdfs_dir))
 documents = reader.load_data()
 print(f"총 {len(documents)}개의 문서 로드 완료")
 
