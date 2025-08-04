@@ -2,6 +2,7 @@ import math
 # 상대 임포트 대신 절대 임포트 사용
 from common import model, makeup_response, client
 from functioncalling import FunctionCalling, tools
+import json
 class ChatbotStream:
     def __init__(self, model,system_role,instruction,**kwargs):
         """
