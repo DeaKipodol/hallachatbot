@@ -1,4 +1,4 @@
-from  common  import client, model, makeup_response
+from  chatbotDirectory.common  import client, model, makeup_response
 import json
 import requests
 from pprint import pprint
