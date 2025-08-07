@@ -8,11 +8,15 @@ from fastapi.responses import StreamingResponse
 from chatbotDirectory import chatbot
 from chatbotDirectory.functioncalling import tools ,FunctionCalling
 from chatbotDirectory.functioncalling import model
+from chatbotDirectory.chatbot import ChatbotStream
 import json
 
 
+# UserRequest 클래스에 language 필드 추가
 class UserRequest(BaseModel):
     message: str
+    language: str = "KOR"  # 기본값은 한국어로 설정
+
 func_calling = FunctionCalling(
     model=model.basic,
     available_functions={
@@ -25,6 +29,14 @@ load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 
+# 예시: 전역 또는 엔드포인트 내부에서 인스턴스 생성
+chatbot = ChatbotStream(
+    model=model.advanced,
+    system_role="당신은 친절하고 유능한 챗봇입니다.",
+    instruction="당신은 사용자의 질문에 답변하는 역할을 합니다.",
+    user="대기",
+    assistant="memmo"
+)
 
 # 채팅
 class Message(BaseModel):
@@ -52,11 +64,25 @@ async def stream_chat(user_input: UserRequest):
     # 1) 사용자 메시지를 우선 원본 문맥에 추가
     chatbot.add_user_message_in_context(user_input.message)
     
-    chatbot.context[-1]['content'] += chatbot.instruction
+    # 언어별 지침 매핑 정의
+    instruction_map = {
+        "KOR": "한국어로 정중하고 따뜻하게 답해주세요.",
+        "ENG": "Please respond kindly in English.",
+        "VI": "Vui lòng trả lời bằng tiếng Việt một cách nhẹ nhàng.",
+        "JPN": "日本語で丁寧に温かく答えてください。",
+        "CHN": "请用中文亲切地回答。"
+        # 필요에 따라 더 많은 언어 추가
+    }
+    
+    # 사용자가 선택한 언어에 따라 지침 선택 (없으면 한국어 기본값)
+    instruction = instruction_map.get(user_input.language, instruction_map["KOR"])
+    
+    # 사용자 메시지에 지침 추가
+    chatbot.context[-1]['content'] += " " + instruction
 
     analyzed= func_calling.analyze(user_input.message, tools)
 
-    temp_context = chatbot.to_openai_context().copy()
+    temp_context = chatbot.to_openai_context(context=chatbot.context[:])
     
 
     for tool_call in analyzed:  # analyzed는 list of function_call dicts
@@ -175,3 +201,4 @@ async def stream_chat(user_input: UserRequest):
                         # 최종 응답을 원본 문맥에 저장
     # 5) 함수 호출이 있을 때는 위의 generate_with_tool()를 사용
     return StreamingResponse(generate_with_tool(), media_type="text/plain")
+
