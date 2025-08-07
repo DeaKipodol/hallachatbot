@@ -41,14 +41,37 @@ class ChatbotStream:
             self.context.append(assistant_message)
 
     #전송부
-    def _send_request_Stream(self):
+    def _send_request_Stream(self,temp_context=None):
         
         completed_text = ""
-        stream = client.responses.create(
-        model=self.model,
-        input=self.context,  
-        stream=True,
-        )   
+
+        if temp_context is None:
+           current_context = self.get_current_context()
+           openai_context = self.to_openai_context(current_context)
+           stream = client.responses.create(
+            model=self.model,
+            input=openai_context,  
+            top_p=1,
+            stream=True,
+            
+            text={
+                "format": {
+                    "type": "text"  # 또는 "json_object" 등 (Structured Output 사용 시)
+                }
+            }
+                )
+        else:  
+           stream = client.responses.create(
+            model=self.model,
+            input=temp_context,  # user/assistant 역할 포함된 list 구조
+            top_p=1,
+            stream=True,
+            text={
+                "format": {
+                    "type": "text"  # 또는 "json_object" 등 (Structured Output 사용 시)
+                }
+            }
+                )
         
         loading = True  # delta가 나오기 전까지 로딩 중 상태 유지       
         for event in stream:
@@ -94,6 +117,7 @@ class ChatbotStream:
                     
                     print(f"[📬 기타 이벤트 감지: {event.type}]")
         return completed_text
+  
   
     def send_request_Stream(self):
       self.context[-1]['content']+=self.instruction
@@ -238,7 +262,7 @@ if __name__ == "__main__":
                 print(f"[함수 실행 오류] {func_name}: {e}")
 
         # 함수 결과 포함 응답 요청
-        streamed_response = chatbot._send_request_Stream()
+        streamed_response = chatbot._send_request_Stream(temp_context)
         temp_context = None
         chatbot.add_response_stream(streamed_response)
         print(chatbot.context)
