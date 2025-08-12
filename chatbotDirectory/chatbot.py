@@ -1,7 +1,12 @@
 import math
+import os
+import time
 # 상대 임포트 대신 절대 임포트 사용
 from chatbotDirectory.common import model, makeup_response, client
 from chatbotDirectory.functioncalling import FunctionCalling, tools
+from loding.vector_db_upload import index, get_embedding
+from loding.mongodbConnect import collection
+from bson import ObjectId, errors
 import json
 class ChatbotStream:
     def __init__(self, model,system_role,instruction,**kwargs):
@@ -25,8 +30,15 @@ class ChatbotStream:
         self.max_token_size = 16 * 1024 #최대 토큰이상을 쓰면 오류가발생 따라서 토큰 용량관리가 필요.
         self.available_token_rate = 0.9#최대토큰의 90%만 쓰겠다.
     
-        self.username=kwargs["user"]
-        self.assistantname=kwargs["assistant"]
+        
+
+        # 디버그 플래그 (환경변수 RAG_DEBUG로 제어: 기본 활성화)
+        self.debug = os.getenv("RAG_DEBUG", "1") not in ("0", "false", "False")
+
+    def _dbg(self, msg: str):
+        """작은 디버그 헬퍼: RAG 관련 내부 상태를 보기 쉽게 출력."""
+        if self.debug:
+            print(f"[RAG-DEBUG] {msg}")
 
     def add_user_message_in_context(self, message: str):
         """
@@ -178,6 +190,146 @@ class ChatbotStream:
     def to_openai_context(self, context):
         return [{"role":v["role"], "content":v["content"]} for v in context]
 
+    def is_question_about_regulation(self, question: str) -> bool:
+        # 간단 예시: 키워드 포함 여부 체크 (필요 시 GPT 판단으로 확장 가능)
+        keywords = ["학사", "규정", "졸업", "수강", "성적", "장학", "징계"]
+        decision = any(k in question for k in keywords)
+        self._dbg(f"is_question_about_regulation: q='{question[:60]}'... -> {decision}")
+        return decision
+
+
+
+    def search_similar_chunks(self, query: str, threshold=0.1):
+        t0 = time.time()
+        self._dbg(f"search_similar_chunks: query='{query[:80]}', threshold={threshold}")
+        embedding = get_embedding(query)
+        namespaces = ["law_articles", "appendix_tables"]
+
+        all_hits = []
+        all_chunk_ids = []
+
+        for ns in namespaces:
+            self._dbg(f" - querying namespace='{ns}' top_k=50 include_metadata=True")
+            query_response = index.query(
+                namespace=ns,
+                top_k=10,
+                include_metadata=True,
+                vector=embedding,
+            )
+            hits = query_response.matches
+            self._dbg(f"   -> {len(hits)} matches returned")
+
+            for h in hits:
+                all_hits.append(h)
+                meta = getattr(h, "metadata", {}) or {}
+                # 메타데이터 id 키 후보 확대(mongo_id 포함)
+                id_value = (
+                    meta.get("id")
+                    or meta.get("mongo_id")
+                    or meta.get("ID")
+                    or meta.get("default")
+                )
+                score = getattr(h, "score", None)
+                if id_value is not None:
+                    all_chunk_ids.append(id_value)
+                    self._dbg(f"     match: id={id_value} score={score}")
+                else:
+                    self._dbg(f"     match: id=<missing> score={score} meta_keys={list(meta.keys())}")
+
+        # 점수 기준 필터링
+        filtered_hits = [hit for hit in all_hits if getattr(hit, "score", 0) >= threshold]
+        t1 = time.time()
+        self._dbg(
+            f"search_similar_chunks: total_hits={len(all_hits)} filtered={len(filtered_hits)} unique_ids={len(set(all_chunk_ids))} took={(t1-t0):.3f}s"
+        )
+
+        return filtered_hits, all_chunk_ids
+
+    def fetch_chunks_from_mongo(self, chunk_ids: list):
+        self._dbg(f"fetch_chunks_from_mongo: incoming_ids={len(chunk_ids)} (showing up to 5) -> {chunk_ids[:5]}")
+        results = []
+        for chunk_id in chunk_ids:
+            try:
+                if isinstance(chunk_id, str) and len(chunk_id) == 24:
+                    chunk_id_obj = ObjectId(chunk_id)
+                    self._dbg(f" - id '{chunk_id}' converted to ObjectId")
+                else:
+                    chunk_id_obj = chunk_id
+                    self._dbg(f" - id '{chunk_id}' used as-is (type={type(chunk_id).__name__})")
+            except errors.InvalidId as e:
+                print(f"[WARN] ObjectId 변환 실패: {chunk_id} ({e})")
+                chunk_id_obj = chunk_id
+
+            doc = collection.find_one({"_id": chunk_id_obj})
+            if doc:
+                results.append(doc)
+                text_len = len(doc.get("text", "")) if isinstance(doc.get("text"), str) else 0
+                self._dbg(f"   -> Mongo HIT _id={doc.get('_id')} text_len={text_len}")
+            else:
+                self._dbg(f"   -> Mongo MISS _id={chunk_id}")
+        self._dbg(f"fetch_chunks_from_mongo: retrieved={len(results)}")
+        return results
+
+    def prepare_rag_context(self, user_question: str):
+        self._dbg("prepare_rag_context: start")
+        if not self.is_question_about_regulation(user_question):
+            print("[INFO] 학사 규정 관련이 아님 → RAG 검색 안 함")
+            self._dbg("prepare_rag_context: gate=NON_REGULATION -> None")
+            return None
+
+        hits, chunk_ids = self.search_similar_chunks(user_question)
+        if not hits:
+            print("[INFO] Pinecone에서 유사 데이터 없음")
+            self._dbg("prepare_rag_context: no pinecone hits -> None")
+            return None
+
+        self._dbg(f"prepare_rag_context: chunk_ids(sample)={chunk_ids[:5]} total={len(chunk_ids)}")
+
+        if not chunk_ids:
+            print("[INFO] Pinecone 결과에 id 없음")
+            self._dbg("prepare_rag_context: ids empty -> None")
+            return None
+
+        chunks = self.fetch_chunks_from_mongo(chunk_ids)
+        if not chunks:
+            print("[INFO] MongoDB에서 매칭된 문서 없음")
+            self._dbg("prepare_rag_context: mongo returned 0 -> None")
+            return None
+
+        texts = [chunk.get("text", "") for chunk in chunks]
+        rag_ctx = "\n\n".join(texts)
+        self._dbg(f"prepare_rag_context: built context chars={len(rag_ctx)}")
+        return rag_ctx
+        
+    def get_response_from_db_only(self, user_question: str):
+        self._dbg("get_response_from_db_only: start")
+        rag_context = self.prepare_rag_context(user_question)
+        if rag_context is None:
+            self._dbg("get_response_from_db_only: rag_context=None -> fallback message")
+            return "데이터베이스에 관련 내용이 없습니다."
+
+        # LLM 호출할 context 구성: system 메시지 + DB 내용(system role) + user 질문
+        context = [
+            {"role": "system", "content": "당신은 학사 규정 관련 질문에 답변하는 챗봇입니다. 아래 내용을 참고하여 정확하게 답변하세요."},
+            {"role": "system", "content": rag_context},
+            {"role": "user", "content": user_question},
+        ]
+        self._dbg(
+            f"get_response_from_db_only: messages=[system, system(ctx:{rag_context} chars), user] model={self.model}"
+        )
+
+        t0 = time.time()
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=context,
+            max_tokens=1000,
+            temperature=0.0,
+        )
+        dt = time.time() - t0
+        answer = response.choices[0].message.content
+        self._dbg(f"get_response_from_db_only: received answer chars={len(answer)} took={dt:.2f}s")
+        return answer
+
 if __name__ == "__main__":
     '''실행흐름
     단계	내용
@@ -206,6 +358,41 @@ if __name__ == "__main__":
 
     while True:
         user_input = input("User > ")
+            # RAG 테스트 명령어들
+        if user_input.startswith("/rag "):
+            q = user_input[len("/rag "):].strip()
+            print("\n[🧠 RAG 테스트] DB 전용 응답 생성...")
+            try:
+                ans = chatbot.get_response_from_db_only(q)
+                print(f"\n[답변]\n{ans}\n")
+            except Exception as e:
+                print(f"[오류] RAG 응답 실패: {e}")
+            continue
+
+        if user_input.startswith("/rag-debug "):
+            q = user_input[len("/rag-debug "):].strip()
+            print("\n[🔍 RAG 디버그] Pinecone 검색 → Mongo 재조회...")
+            try:
+                hits, ids = chatbot.search_similar_chunks(q)
+                print(f"- Pinecone hits: {len(hits)}개")
+                print(f"- chunk_ids 샘플: {ids[:5]}")
+                chunks = chatbot.fetch_chunks_from_mongo(ids[:5])
+                print(f"- Mongo 재조회 결과: {len(chunks)}개\n")
+            except Exception as e:
+                print(f"[오류] RAG 디버그 실패: {e}")
+            continue
+
+        if user_input.startswith("/rag-search "):
+            q = user_input[len("/rag-search "):].strip()
+            print("\n[📚 RAG 검색만] Pinecone top-k 확인...")
+            try:
+                hits, ids = chatbot.search_similar_chunks(q)
+                for i, h in enumerate(hits[:5]):
+                    meta = getattr(h, "metadata", {}) or {}
+                    print(f"{i+1}. score={getattr(h, 'score', 'N/A')} id={meta.get('id')}")
+            except Exception as e:
+                print(f"[오류] RAG 검색 실패: {e}")
+            continue
         if user_input.strip().lower() == "exit":
             print("Chatbot 종료.")
             
