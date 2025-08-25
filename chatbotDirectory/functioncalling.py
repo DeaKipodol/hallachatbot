@@ -1,7 +1,11 @@
-from  chatbotDirectory.common  import client, model, makeup_response
+from chatbotDirectory.common import client, model, makeup_response
 import json
 import requests
 from pprint import pprint
+import re
+from datetime import datetime, timedelta
+from typing import Optional
+from bs4 import BeautifulSoup
 
 import os
 tools = [
@@ -25,10 +29,63 @@ tools = [
                 "additionalProperties": False
             }
             },
+            {
+            "type": "function",
+            "name": "get_halla_cafeteria_menu",
+            "description": "원주 한라대학교 학생식당 주간 식단 페이지에서 특정 날짜/끼니의 메뉴를 추출합니다.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "required": ["date", "meal"],
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "조회할 날짜. 형식 YYYY-MM-DD 또는 YYYY.MM.DD. '오늘', '내일' 허용. 기본값은 '오늘'입니다.",
+                    },
+                    "meal": {
+                        "type": "string",
+                        "enum": ["조식", "중식", "석식"],
+                        "description": "조회할 끼니. 기본값은 '중식'입니다.",
+                    }
+                },
+                "additionalProperties": False
+            }
+            },
       
        
       
     ]
+
+# --- 규칙 기반 사이트 선호 라우팅 ---
+def _prefer_halla_site_query(user_input: str, context_info: str | None = None) -> str | None:
+    """특정 요구사항(메뉴/공지 등)일 때 한라대 특정 페이지를 우선 탐색하도록 검색어를 구성.
+    매칭되면 URL과 site 필터를 포함한 쿼리를 반환, 없으면 None.
+    """
+    base = (context_info or "")
+    text = f"{user_input}\n{base}".lower()
+
+    # 메뉴/학식 라우팅
+    menu_keywords = ["학식", "식단", "메뉴", "점심", "저녁", "오늘 메뉴"]
+    if any(k in text for k in menu_keywords):
+        url = "https://www.halla.ac.kr/kr/211/subview.do"
+        return f"site:halla.ac.kr {url} {user_input}"
+
+    # 공지 라우팅: 우선순위 있는 카테고리부터 검사
+    if "학사공지" in text:
+        url = "https://www.halla.ac.kr/kr/242/subview.do"
+        return f"site:halla.ac.kr {url} {user_input}"
+    if "비교과" in text or "비교과공지" in text:
+        url = "https://www.halla.ac.kr/kr/243/subview.do"
+        return f"site:halla.ac.kr {url} {user_input}"
+    if "장학" in text:
+        url = "https://www.halla.ac.kr/kr/244/subview.do"
+        return f"site:halla.ac.kr {url} {user_input}"
+    if "일반공지" in text or "공지" in text:
+        url = "https://www.halla.ac.kr/kr/241/subview.do"
+        return f"site:halla.ac.kr {url} {user_input}"
+
+    # 미매칭 시 라우팅 없음
+    return None
 
 def search_internet(user_input: str,chat_context=None) -> str:
     
@@ -54,25 +111,36 @@ def search_internet(user_input: str,chat_context=None) -> str:
             ])
             
             
-            search_text = client.responses.create(
-                model="gpt-4o",
-                input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": f"{user_input}\n\n[대화 문맥]: {context_info} 을 제공된 문맥에 맞게 검색어를 새로 만들어라 <예>  문맥: 창업가양성교육...; 사용자 요청:25년 정보로 검색해줘; 검색어[창업양성교육 25년]검색어는 단어의 조합이어야된다.</예>"
-                        }
-                    ]
-                }
-            ],
-        ).output_text
+            # 규칙 기반 라우팅: 특정 요구 시 한라대 특정 URL 포함
+            preferred = _prefer_halla_site_query(user_input, context_info)
+            if preferred:
+                search_text = preferred
+            else:
+                # 일반 케이스: LLM이 검색어를 재작성
+                search_text = client.responses.create(
+                    model="gpt-4o",
+                    input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": (
+                                    f"{user_input}\n\n[대화 문맥]: {context_info} 를 참고해(이전 문맥에 이어서 질문을 한것 같다면 그것과 관련해서 검색어 생성) 검색어를 간결한 단어 조합으로 새로 만들어라. "
+                                    "가능하면 site:halla.ac.kr 또는 관련 공식 페이지 URL을 포함하라."
+                                ),
+                            }
+                        ]
+                    }
+                ],
+            ).output_text
             print("문맥DEBUG!!!!!!!!!!!!!!!!!!")
             print(search_text)
             print("\n\n\n\n")
         else:
-            search_text = user_input 
+            # chat_context가 없을 때도 규칙 기반 라우팅 적용
+            preferred = _prefer_halla_site_query(user_input)
+            search_text = preferred if preferred else user_input 
             print("없는 문맥DEBUG!!!!!!!!!!!!!!!!!!")
             print(search_text)
             print("\n\n\n\n")
@@ -163,11 +231,177 @@ def search_internet(user_input: str,chat_context=None) -> str:
     except Exception as e:
         return f"🚨 오류 발생: {str(e)}"
 
+
+def _parse_date_input(date_text: Optional[str]) -> datetime.date:
+    today = datetime.now().date()
+    if not date_text:
+        return today
+    s = date_text.strip()
+    if s in ("오늘", "today"):
+        return today
+    if s in ("내일", "tomorrow"):
+        return today + timedelta(days=1)
+    # Normalize separators
+    s = s.replace("/", ".").replace("-", ".")
+    # Try YYYY.MM.DD
+    try:
+        return datetime.strptime(s, "%Y.%m.%d").date()
+    except Exception:
+        pass
+    # Try YYYY.MM.D
+    try:
+        return datetime.strptime(s, "%Y.%m.%d").date()
+    except Exception:
+        raise ValueError("날짜 형식은 YYYY-MM-DD 또는 YYYY.MM.DD 또는 '오늘/내일'을 사용하세요.")
+
+
+def get_halla_cafeteria_menu(date: Optional[str] = None, meal: Optional[str] = None) -> str:
+    """원주 한라대 학생식당 주간 식단 페이지를 파싱하여 특정 날짜/끼니 메뉴를 반환.
+    제한: 서버가 주차 변경을 JS/폼으로 처리하면 과거/미래 주 선택은 어려울 수 있음. 이 경우 현재 주만 반환.
+    """
+    try:
+        target_date = _parse_date_input(date)
+    except Exception as e:
+        return f"❌ 날짜 해석 실패: {e}"
+
+    url = "https://www.halla.ac.kr/kr/211/subview.do"
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+    except Exception as e:
+        return f"❌ 페이지 요청 실패: {e}"
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # 주간 범위 텍스트 찾기 (예: 2025.08.25 ~ 2025.08.31)
+    text = soup.get_text("\n", strip=True)
+    m = re.search(r"(\d{4}\.\d{2}\.\d{2})\s*~\s*(\d{4}\.\d{2}\.\d{2})", text)
+    week_start = week_end = None
+    if m:
+        try:
+            week_start = datetime.strptime(m.group(1), "%Y.%m.%d").date()
+            week_end = datetime.strptime(m.group(2), "%Y.%m.%d").date()
+        except Exception:
+            pass
+
+    # 현재 주 확인 및 대상 날짜가 해당 주에 포함되는지 체크
+    if week_start and week_end and not (week_start <= target_date <= week_end):
+        # 다른 주일 경우, 서버가 파라미터 없이 현재 주만 제공하면 한계 안내
+        info = f"현재 페이지는 {week_start}~{week_end} 주간 식단입니다."
+        return info + " 원하는 날짜는 다른 주입니다. 페이지가 주차 파라미터를 제공하지 않아 현재 주만 조회 가능합니다: " + url
+
+    # 테이블 탐색: 요일 헤더와 끼니 라벨이 있는 표를 찾아 파싱
+    tables = soup.find_all("table")
+
+    days = ["월", "화", "수", "목", "금", "토", "일"]
+    weekday_idx = target_date.weekday()  # 0=월
+    target_day_label = days[weekday_idx]
+
+    def clean(txt: str) -> str:
+        return re.sub(r"\s+", " ", txt).strip()
+
+    def pick_table_and_parse() -> dict:
+        # 반환: {"조식": str|None, "중식": str|None, "석식": str|None}
+        result = {"조식": None, "중식": None, "석식": None}
+        for tbl in tables:
+            rows = tbl.find_all("tr")
+            if not rows:
+                continue
+            # 1) 요일 열 인덱스 매핑 찾기 (헤더 1~2행을 살펴봄)
+            day_col_index = None
+            header_candidates = rows[:2] if len(rows) >= 2 else rows[:1]
+            for hdr in header_candidates:
+                cells = hdr.find_all(["th", "td"])
+                for i, c in enumerate(cells):
+                    txt = clean(c.get_text())
+                    if target_day_label in txt or (txt.endswith("요일") and target_day_label in txt):
+                        day_col_index = i
+                        break
+                if day_col_index is not None:
+                    break
+
+            # 일부 표는 첫 열이 '구분', 이후 월~일이므로 day_col_index를 못 찾으면 월~일 패턴으로 추정
+            if day_col_index is None:
+                # 헤더 행에서 월~일이 연속으로 나타나는지 확인
+                for hdr in header_candidates:
+                    cells = [clean(c.get_text()) for c in hdr.find_all(["th", "td"])]
+                    if any(d in "".join(cells) for d in days):
+                        # 기본적으로 첫 열이 라벨, 이후 월=1, 화=2 ...로 가정
+                        day_col_index = 1 + weekday_idx
+                        break
+
+            if day_col_index is None:
+                continue
+
+            # 2) 끼니 라벨 행을 찾아 해당 요일 열의 셀을 추출
+            for tr in rows:
+                cells = tr.find_all(["th", "td"])
+                if not cells:
+                    continue
+                label = clean(cells[0].get_text()) if cells else ""
+                # 끼니명은 변형될 수 있어 부분 일치 허용 (예: 중식(11:30~13:30))
+                for meal_label in list(result.keys()):
+                    if meal_label in label:
+                        # 요일 열이 범위 안에 있는지 확인
+                        if len(cells) > day_col_index:
+                            result[meal_label] = clean(cells[day_col_index].get_text())
+            # 하나라도 수집되었으면 이 테이블을 채택
+            if any(v for v in result.values()):
+                return result
+        return result
+
+    found = pick_table_and_parse()
+
+    # 폴백: 표 파싱 실패 시 페이지 텍스트에서 라인 기반 추론(부정확할 수 있음)
+    if all(v is None for v in found.values()):
+        lines = [l for l in text.split("\n") if l]
+        # 매우 단순 추정: '중식 | ...' 같은 라인이 있으면 그 다음 토큰들을 사용
+        for key in list(found.keys()):
+            for ln in lines:
+                if key in ln and "|" in ln:
+                    # 파이프 구분으로 분해 후 요일 인덱스 사용
+                    parts = [clean(p) for p in ln.split("|")]
+                    # parts 예: [라벨, 조식, 월, 화, 수, ...] 형태일 수 있음 → 월이 parts에서 어디에 있는지 동적으로 탐색
+                    try:
+                        # 월~일 중 target_day_label의 첫 등장 위치를 찾음
+                        day_pos = None
+                        for i, token in enumerate(parts):
+                            if token.startswith(target_day_label):
+                                day_pos = i
+                                break
+                        if day_pos is None:
+                            # 기본 오프셋 가정: [라벨, 끼니, 월, 화, 수, ...]
+                            base = 2
+                            day_pos = base + weekday_idx
+                        if len(parts) > day_pos:
+                            found[key] = parts[day_pos]
+                    except Exception:
+                        pass
+                        break
+
+    # 결과 구성
+    day_label = target_day_label
+    header = f"한라대 학생식당 식단 ({target_date} {day_label})"
+
+    if meal in ("조식", "중식", "석식"):
+        val = found.get(meal)
+        if not val:
+            return header + f"\n- {meal}: 정보 없음 (페이지 구조 변경 또는 해당 끼니 미운영)\n원문: {url}"
+        return header + f"\n- {meal}: {val}\n원문: {url}"
+
+    # 3끼 모두 반환
+    lines_out = []
+    for k in ["조식", "중식", "석식"]:
+        v = found.get(k)
+        lines_out.append(f"- {k}: {v if v else '정보 없음'}")
+    return header + "\n" + "\n".join(lines_out) + f"\n원문: {url}"
+
 class FunctionCalling:
     def __init__(self, model, available_functions=None):
         self.model = model
         default_functions = {
             "search_internet": search_internet,
+            "get_halla_cafeteria_menu": get_halla_cafeteria_menu,
         }
 
         if available_functions:

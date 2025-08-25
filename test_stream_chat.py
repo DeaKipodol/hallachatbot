@@ -20,7 +20,8 @@ def select_language():
         print("잘못된 입력입니다. 다시 선택하세요.")
 
 def main():
-    url = "http://127.0.0.1:8000/stream-chat"
+    # FastAPI 라우터는 prefix="/api"로 등록되어 있으므로 실제 엔드포인트는 /api/stream-chat 입니다.
+    url = "http://127.0.0.1:8000/api/stream-chat"
     language = select_language()
     print(f"선택된 언어: {language}")
 

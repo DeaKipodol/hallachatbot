@@ -175,6 +175,9 @@ name = "app"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "certifi" },
+    { name = "dnspython" },
     { name = "dotenv" },
     { name = "fastapi" },
     { name = "llama-index" },
@@ -189,13 +192,16 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12.3" },
+    { name = "certifi", specifier = ">=2024.7.4" },
+    { name = "dnspython", specifier = ">=2.6.1" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "llama-index", specifier = ">=0.13.0" },
     { name = "olefile", specifier = ">=0.47" },
     { name = "openai", specifier = ">=1.98.0" },
     { name = "pinecone", specifier = ">=7.3.0" },
-    { name = "pymongo", specifier = ">=4.13.2" },
+    { name = "pymongo", extras = ["srv"], specifier = ">=4.13.2" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytz", specifier = ">=2025.2" },
     { name = "uvicorn", specifier = ">=0.35.0" },
