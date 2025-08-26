@@ -32,9 +32,9 @@ client = OpenAI(api_key=api_key)
 # 예시: 전역 또는 엔드포인트 내부에서 인스턴스 생성
 chatbot = ChatbotStream(
     model=model.advanced,
-    system_role="당신은 친절하고 유능한 챗봇입니다.",
+    system_role="당신은 학교 생활, 학과 정보, 행사 등 사용자가 궁금한 점이 있으면 아는 범위 안에서 대답합니다. 단 절대 거짓내용을 말하지 않습니다. 아는 범위에서 말하고 부족한 부분은 인정하세요.당신은 실시간으로 검색하는 기능이있습니다. ",
     instruction="당신은 사용자의 질문에 답변하는 역할을 합니다.",
-    user="대기",
+    user="한라대 대학생",
     assistant="memmo"
 )
 
@@ -176,7 +176,7 @@ async def stream_chat(user_input: UserRequest):
         "content": (
             f"이것은 사용자 쿼리입니다: {user_input.message}\n"
             "다음 정보를 사용자가 원하는 대답에 맞게 통합해 전달하세요.\n"
-            "- 함수호출 결과: 있으면 반영\n- 기억검색 결과: 있으면 반영"
+            "- 함수호출 결과: 있으면 반영\n- 기억검색 결과: 있으면 반영/ 직접적으로 함수 호출 여부에 대해 사용자에게 언급하지 마세요."
         ),
     })
     temp_context.append({"role": "system", "content": chatbot.instruction})
