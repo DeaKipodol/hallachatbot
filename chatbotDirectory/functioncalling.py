@@ -32,7 +32,7 @@ tools = [
             {
             "type": "function",
             "name": "get_halla_cafeteria_menu",
-            "description": "원주 한라대학교 학생식당 주간 식단 페이지에서 특정 날짜/끼니의 메뉴를 추출합니다.",
+            "description": "원주 한라대학교 학생식당의 메뉴를 궁금해 하면 이 함수를 호출하세요. 주간 식단 페이지에서 특정 날짜/끼니의 메뉴를 추출합니다.",
             "strict": True,
             "parameters": {
                 "type": "object",
@@ -58,7 +58,7 @@ tools = [
 
 # --- 규칙 기반 사이트 선호 라우팅 ---
 def _prefer_halla_site_query(user_input: str, context_info: str | None = None) -> str | None:
-    """특정 요구사항(메뉴/공지 등)일 때 한라대 특정 페이지를 우선 탐색하도록 검색어를 구성.
+    """특정 요구사항일 때 한라대 특정 페이지를 우선 탐색하도록 검색어를 구성.
     매칭되면 URL과 site 필터를 포함한 쿼리를 반환, 없으면 None.
     """
     base = (context_info or "")
