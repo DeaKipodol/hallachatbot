@@ -56,6 +56,41 @@ tools = [
       
     ]
 
+# --- 공지 카테고리 LLM 분류기 ---
+def _classify_notice_category_llm(user_input: str, context_info: str | None = None) -> str | None:
+    """사용자 입력이 어떤 공지사항 카테고리인지 LLM으로 분류하여 카테고리 문자열을 반환.
+    반환 가능 값: "학사공지", "비교과공지", "장학공지", "일반공지", "해당없음". 인식 실패 시 None.
+    """
+    try:
+        allowed = ["학사공지", "비교과공지", "장학공지", "일반공지", "해당없음"]
+        prompt = (
+            "다음 사용자의 요청이 한라대학교 '공지' 중 어떤 카테고리에 해당하는지 하나만 선택해 답하세요.\n"
+            "카테고리: 학사공지 | 비교과공지 | 장학공지 | 일반공지 | 해당없음\n"
+            "규칙:\n"
+            "- 정확히 위의 단어 중 하나만 출력하세요. 다른 말, 설명, 따옴표 없이.\n"
+            f"사용자 입력: {user_input}\n"
+            f"대화 문맥: {context_info or '(없음)'}\n\n"
+            "정답:"
+        )
+
+        resp = client.responses.create(
+            model=model.o3_mini,
+            input=[{
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            }],
+        )
+        raw = (getattr(resp, "output_text", None) or "").strip()
+        print("공지 카테고리 분류기 원문:", raw)
+        # 정규화 및 선택
+        text_norm = raw.replace(" ", "").replace("\n", "")
+        for a in allowed:
+            if a in text_norm:
+                return a
+        return None
+    except Exception:
+        return None
+
 # --- 규칙 기반 사이트 선호 라우팅 ---
 def _prefer_halla_site_query(user_input: str, context_info: str | None = None) -> str | None:
     """특정 요구사항일 때 한라대 특정 페이지를 우선 탐색하도록 검색어를 구성.
@@ -70,19 +105,32 @@ def _prefer_halla_site_query(user_input: str, context_info: str | None = None) -
         url = "https://www.halla.ac.kr/kr/211/subview.do"
         return f"site:halla.ac.kr {url} {user_input}"
 
-    # 공지 라우팅: 우선순위 있는 카테고리부터 검사
+    # 공지 라우팅: LLM 분류 기반 → 실패 시 키워드 기반 폴백
+    category = _classify_notice_category_llm(user_input, context_info)
+    category_to_url = {
+        "학사공지": "https://www.halla.ac.kr/kr/242/subview.do",
+        "비교과공지": "https://www.halla.ac.kr/kr/243/subview.do",
+        "장학공지": "https://www.halla.ac.kr/kr/244/subview.do",
+        "일반공지": "https://www.halla.ac.kr/kr/241/subview.do",
+    }
+    if category and category != "해당없음":
+        url = category_to_url.get(category)
+        if url:
+            return f"site:halla.ac.kr {url} {user_input}"
+
+    # 폴백: 단순 키워드 매칭
     if "학사공지" in text:
         url = "https://www.halla.ac.kr/kr/242/subview.do"
-        return f"site:halla.ac.kr {url} {user_input}"
+        return f"{user_input} site:halla.ac.kr {url} "
     if "비교과" in text or "비교과공지" in text:
         url = "https://www.halla.ac.kr/kr/243/subview.do"
-        return f"site:halla.ac.kr {url} {user_input}"
+        return f"{user_input} site:halla.ac.kr {url}"
     if "장학" in text:
         url = "https://www.halla.ac.kr/kr/244/subview.do"
-        return f"site:halla.ac.kr {url} {user_input}"
+        return f"{user_input} site:halla.ac.kr {url} "
     if "일반공지" in text or "공지" in text:
         url = "https://www.halla.ac.kr/kr/241/subview.do"
-        return f"site:halla.ac.kr {url} {user_input}"
+        return f"{user_input} site:halla.ac.kr {url}"
 
     # 미매칭 시 라우팅 없음
     return None
