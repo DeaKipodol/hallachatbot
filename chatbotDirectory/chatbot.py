@@ -8,7 +8,7 @@ from pathlib import Path
 # (예: `python chatbotDirectory/chatbot.py`로 직접 실행하는 경우 대비)
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+    sys.path.insert(0, str(_ROOT)) 
 # 상대 임포트 대신 절대 임포트 사용
 from .common import model, makeup_response, client
 from .functioncalling import FunctionCalling, tools
@@ -210,9 +210,8 @@ class ChatbotStream:
            {
                "role": "system",
                "content": (
-               "당신은 분류기입니다. 주어진 질문이 학사 규정(공지사항 아님), 졸업 요건, 수강, 성적, 장학, 징계 등 대학교 규칙에 대해 묻는 것이라면 'True', "
-               "그 외 주제(공지사항, 학생식당 등)라면 'False'만 출력하세요. "
-               "설명은 하지 말고 반드시 True 또는 False만 출력하세요."
+               "당신은 분류기입니다. 반드시 'True' 또는 'False'로만 대답하세요."
+               "지금은 무조건 True 만 내보내세요."
                ),
            },
            {
@@ -259,10 +258,10 @@ class ChatbotStream:
         all_chunk_ids = []
 
         for ns in namespaces:
-            self._dbg(f" - querying namespace='{ns}' top_k=10 include_metadata=True")
+            self._dbg(f" - querying namespace='{ns}' top_k=5 include_metadata=True")
             query_response = index.query(
                 namespace=ns,
-                top_k=10,
+                top_k=5,
                 include_metadata=True,
                 vector=embedding,
             )

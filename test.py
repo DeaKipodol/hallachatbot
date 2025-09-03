@@ -425,7 +425,7 @@ def show_menu():
     print("   4. Pinecone 인덱스 통계")
     print("   5. 테스트 데이터 삭제 (MongoDB)")
     print("   6. 벡터 데이터 삭제 (Pinecone)")
-    print("   7. 전체 실행 (1→2→3→4)")
+    print("   7. Pinecone 벡터 업로드만 실행 (MongoDB에 있는 청크를 Pinecone으로 업로드)")
     print("   8. Pinecone 데이터 진단")
     print("   9. Pinecone 인덱스 상태 확인")
     print("   10. 네임스페이스 목록 확인")
@@ -458,10 +458,14 @@ def main():
             elif choice == "6":
                 cleanup_pinecone_data()
             elif choice == "7":
-                chunks = test_full_pipeline()
-                test_mongodb_query()
-                test_pinecone_vector_search()
-                test_pinecone_stats()
+                # MongoDB에 저장된 청크만을 Pinecone으로 업로드하는 간단 실행 경로
+                print("\n🚀 Pinecone 벡터 업로드 (MongoDB -> Pinecone) 시작")
+                try:
+                    upload_chunks_to_pinecone(category="law_articles")
+                    upload_chunks_to_pinecone(category="appendix_tables")
+                    print("✅ Pinecone 업로드 완료!")
+                except Exception as e:
+                    print(f"❌ Pinecone 업로드 실패: {e}")
             elif choice == "8":
                 debug_pinecone_data()
             elif choice == "9":
