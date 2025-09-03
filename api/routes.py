@@ -182,17 +182,75 @@ async def stream_chat(user_input: UserRequest):
     temp_context.append({"role": "system", "content": chatbot.instruction})
 
     if has_rag:
-        temp_context.append({"role": "system", "content": "검색결과입니다. 사용자의 원하는 쿼리에 맞게 대답하세요."})
-        temp_context.append({"role": "system", "content": f"[검색결과]\n{rag_ctx}"})
+        # 5-1) 기억검색 결과를 그대로 넣지 않고, 먼저 LLM으로 사용자 질문에 맞게 가공/요약
+        def _sanitize_text(txt: str) -> str:
+            # 제어문자 제거 및 태그 충돌 방지
+            if not isinstance(txt, str):
+                txt = str(txt)
+            # 간단 제어문자 필터링 (LF, TAB 제외)
+            txt = ''.join(ch for ch in txt if ch in ('\n', '\t') or (ord(ch) >= 32 and ch != 127))
+            # 태그 조기 종료 방지
+            txt = txt.replace("</기억검색>", "[/기억검색]")
+            # 과도한 길이 클램프 (필요시 조정)
+            max_len = 12000
+            return txt[:max_len]
+
+        sanitized_rag = _sanitize_text(rag_ctx)
+
+        condense_prompt = [
+            {"role": "system", "content": (
+                "당신은 긴 문서 묶음을 사용자의 질문에 맞게 가공하는 어시스턴트입니다. "
+                "아래 요구사항을 만족하세요: \n"
+                "ㅇ원문내용의 특수문자를 지우고 그대로 출력\n"
+                "사용자 질문에 근접한 내용을 <반영>...</반영> 태그안에 집어넣어 표시 "
+                "- 모호하거나 불명확하면 '관련 근거 없음'이라고 표시\n"
+                "최대한 원문 그대로 출력"
+            )},
+            {"role": "user", "content": f"사용자 질문: {user_input.message}"},
+            {"role": "system", "content": "다음은 기억검색 원문입니다. <기억검색>...</기억검색> 내부만 참고하여 가공 결과를 생성하세요."},
+            {"role": "system", "content": f"<기억검색>{sanitized_rag}</기억검색>"},
+        ]
+
+        # 디버그: condense_prompt와 rag_ctx 출력
+        print("==== [DEBUG] condense_prompt ====")
+        for item in condense_prompt:
+            print(item)
+        print("==== [DEBUG] rag_ctx ====")
+        print(rag_ctx)
+
+        try:
+            condensed = client.responses.create(
+                model=model.advanced,
+                input=condense_prompt,
+                text={"format": {"type": "text"}},
+            ).output_text.strip()
+            print("==== [DEBUG] condensed ====")
+            print(condensed)
+        except Exception as _e:
+            # 요약 실패 시 원문을 짧게 잘라 사용
+            print(f"[DEBUG] condense failed: {_e}")
+            condensed = sanitized_rag[:3000]
+
+        temp_context.append({
+            "role": "system",
+            "content": (
+                "기억검색 결과입니다. <기억검색> </기억검색> 태그 내부 내용을 보고 사용자의 원하는 쿼리에 맞게 대답하세요."
+            )
+        })
+        temp_context.append({
+            "role": "system",
+            "content": f"<기억검색>{condensed}</기억검색>"
+        })
 
     if has_funcs:
-        temp_context.append({"role": "system", "content": "함수호출결과입니다. 이걸 바탕으로 대답에 응하세요."})
-        temp_context.extend(func_msgs)
+        temp_context.append({"role": "system", "content": "인터넷 검색결과니다. <인터넷 검색> <인터넷검색> 태그 내부내용 바탕으로 대답에 응하세요./"
+                             "<인터넷검색>{func_msgs}<인터넷검색> 단 기억검색결과가 주가 되어야합니다"})
+       
 
     if has_rag and has_funcs:
         temp_context.append({
             "role": "system",
-            "content": "아래 함수 호출 결과와 검색 결과를 모두 활용해, 두 문맥이 어떻게 도출되었는지 한 줄로 설명하고 사용자 질문에 답하세요.",
+            "content": " 함수 호출 결과와 검색 결과를 모두 활용해, 두 문맥이 어떻게 도출되었는지 한 줄로 설명하고 사용자 질문에 답하세요. ",
         })
 
     # 둘 다 없으면 원본 컨텍스트만 사용해 일반 응답
@@ -244,6 +302,7 @@ async def stream_chat(user_input: UserRequest):
         finally:
             if completed_text:
                 chatbot.add_response_stream(completed_text)
+            print(context_to_stream)
 
     return StreamingResponse(generate_with_tool(), media_type="text/plain")
 

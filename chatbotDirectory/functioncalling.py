@@ -13,7 +13,7 @@ tools = [
             {
             "type": "function",
             "name": "search_internet",
-            "description": "Searches the internet based on user input and retrieves relevant information.",
+            "description": "한라대학교에 대해 묻는 것에 대한 검색, 혹은 인터넷 검색을 사용자가 원하면 실행",
             "strict": True,
             "parameters": {
                 "type": "object",
@@ -145,7 +145,7 @@ def search_internet(user_input: str,chat_context=None) -> str:
         if chat_context:
             print("🔄 문맥 처리 시작")
         # 최근 N개의 메시지만 포함 (너무 많은 문맥은 토큰을 낭비할 수 있음)
-            recent_messages = chat_context[-3:]  # 최근 3개 메시지만 사용
+            recent_messages = chat_context[-4:]  # 최근 3개 메시지만 사용
             print(f"📋 최근 메시지 수: {len(recent_messages)}")
             # 문맥 정보를 추가 컨텍스트로 구성
             for i, msg in enumerate(recent_messages):
