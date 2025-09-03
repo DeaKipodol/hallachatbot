@@ -37,7 +37,7 @@ def main():
 
         payload = {"message": msg, "language": language}
         try:
-            with requests.post(url, json=payload, stream=True, timeout=60) as resp:
+            with requests.post(url, json=payload, stream=True, timeout=120) as resp:
                 print("응답:")
                 for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
                     print(chunk, end="", flush=True)
