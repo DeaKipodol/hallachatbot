@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from openai import OpenAI
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -6,8 +7,11 @@ import pytz
 # 추가: dotenv 임포트
 from dotenv import load_dotenv
 
-# 추가: apikey.env 파일 로드
-load_dotenv("apikey.env")  # 상위 디렉토리의 apikey.env 파일
+# 추가: apikey.env 파일을 패키지 기준 경로로 안전하게 로드
+# common.py (app/chatbotDirectory/common.py) 기준으로 상위(app)/apikey.env를 가리킵니다.
+_BASE_DIR = Path(__file__).resolve().parent.parent  # app/
+_DOTENV_PATH = _BASE_DIR / "apikey.env"
+load_dotenv(_DOTENV_PATH)
 
 @dataclass(frozen=True)
 class Model: 
@@ -24,7 +28,7 @@ class EmbeddingModel:
     
 model = Model()
 embedding_model = EmbeddingModel()
-api_key=os.getenv("OPENAI_API_KEY")  # 이제 정상적으로 로드됨
+api_key = os.getenv("OPENAI_API_KEY")  # 이제 경로와 무관하게 로드됨
 client = OpenAI(api_key=api_key, max_retries=1)
 
 def makeup_response(message, finish_reason="ERROR"):
