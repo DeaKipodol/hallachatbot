@@ -16,7 +16,9 @@ load_dotenv(_DOTENV_PATH)
 @dataclass(frozen=True)
 class Model: 
     basic: str = "gpt-3.5-turbo-1106"
-    advanced: str = "gpt-4-1106-preview"
+    # web_search_preview 툴 미지원 모델(gpt-4-1106-preview) → gpt-4.1로 교체
+    # 필요 시 mini 모델로 조정 가능: gpt-4.1-mini
+    advanced: str = "gpt-4.1"
     o3_mini: str ="o3-mini"
     o1: str = "o1"
 
