@@ -289,8 +289,9 @@ async def stream_chat(user_input: UserRequest):
 
     web_status = None  # 'ok' | 'empty-or-error' | 'not-run'
     if has_funcs:
-        # 함수 실행 결과 문자열 구성
-        formatted_blocks = []
+        # 함수 실행 결과 문자열 구성 (웹검색 결과는 분리 수집)
+        formatted_blocks_other = []
+        formatted_blocks_web = []
         web_outputs: list[str] = []
         # func_msgs는 [call, output, call, output, ...] 구조이므로 2개씩 묶어 처리
         try:
@@ -312,10 +313,13 @@ async def stream_chat(user_input: UserRequest):
                 # 웹검색 상태 수집
                 if name == "search_internet":
                     web_outputs.append(out_text)
-                formatted_blocks.append(f"<function name='{name}' args='{args}'>\n{out_text}\n</function>")
+                    formatted_blocks_web.append(f"<function name='{name}' args='{args}'>\n{out_text}\n</function>")
+                else:
+                    formatted_blocks_other.append(f"<function name='{name}' args='{args}'>\n{out_text}\n</function>")
         except Exception as _fmt_e:
             print(f"[DEBUG] function result formatting error: {_fmt_e}")
-        functions_block = "\n".join(formatted_blocks) if formatted_blocks else "(함수 결과 포맷 없음)"
+        web_functions_block = "\n".join(formatted_blocks_web) if formatted_blocks_web else ""
+        other_functions_block = "\n".join(formatted_blocks_other) if formatted_blocks_other else ""
 
         # 학식 보강 요약 블록이 있다면 포함
         try:
@@ -338,12 +342,22 @@ async def stream_chat(user_input: UserRequest):
             all_bad = all(_is_error_or_empty(t) for t in web_outputs)
             web_status = "empty-or-error" if all_bad else "ok"
 
+        # 지침: 웹검색 결과는 따로 표기하고, 우회/문의 안내만 있는 경우 참고만 하도록 명시
+        web_guidance = (
+            "다음은 인터넷 검색결과입니다. 공식 근거가 아니므로 참고용으로만 사용하세요. "
+            "검색이 안되어 우회/문의 안내만 있을 경우, 무시하고 이 내용은'참조만' 하세요. 반드시 기억검색 근거를 우선 반영하세요. 참조란 안내 전화번호 사이트만을 반영하는것을 말합니다 "
+        )
+        sections.append("[웹검색지침]\n" + web_guidance)
+        if web_functions_block:
+            sections.append("[인터넷 검색결과]\n<인터넷검색>\n" + web_functions_block + "\n</인터넷검색>")
+
         func_guidance = (
-            "다음은 함수(검색/메뉴 등) 호출 결과입니다. <함수결과> 태그 내부 내용만 사실 근거로 사용하고 "
-            "'함수 호출'이라는 표현은 사용하지 말며 거짓 정보 생성 금지"
+            "다음은 함수(검색/메뉴 등) 호출 결과입니다. <함수결과> 태그 내부 내용은 참고용이며, 반드시 아래 기억검색(<기억검색>) 근거를 우선 답변에 반영하세요. "
+            "'함수 호출'이라는 표현은 사용하지 말고, 거짓 정보 생성 금지."
         )
         sections.append("[함수결과지침]\n" + func_guidance)
-        sections.append("[함수결과]\n<함수결과>\n" + functions_block + "\n</함수결과>")
+        if other_functions_block:
+            sections.append("[함수결과]\n<함수결과>\n" + other_functions_block + "\n</함수결과>")
         # 웹검색 상태 표시 (있을 때만)
         if web_status and web_status != "not-run":
             status_kr = {
@@ -357,7 +371,7 @@ async def stream_chat(user_input: UserRequest):
         if web_status in ("empty-or-error", "not-run"):
             if has_rag:
                 sections.append(
-                    "[웹검색결과없음지침]\n웹검색 결과는 없었습니다. 불필요한 말은 하지 말고, 아래 기억검색(<기억검색>) 근거만으로 간결하고 정확하게 답변하세요."
+                    "[웹검색결과없음지침]\n인터넷 검색결과는 참고용입니다. 공식 규정은 아래 기억검색(<기억검색>) 근거를 반드시 우선 확인하세요. 검색이 되지 않거나 문의 안내만 있을 경우, 해당 내용은 참고만 하시고 반드시 아래 규정 근거를 답변에 반영하세요."
                 )
             else:
                 sections.append(
@@ -373,7 +387,9 @@ async def stream_chat(user_input: UserRequest):
         else:
             extra_note = ""
         merge_instruction = (
-            "위 기억검색 근거(<기억검색>)와 함수/검색 결과(<함수결과>)를 대조하여 모순 없게 핵심 답 먼저, 필요한 근거 축약 제시. 근거 없으면 명시." + extra_note
+            "위 기억검색 근거(<기억검색>)와 인터넷 검색결과(<인터넷검색>), 기타 함수결과(<함수결과>)를 대조하여 모순 없이 답하세요. "
+            "핵심 답 먼저 제시하고, 필요한 근거만 축약 인용. 인터넷 검색결과는 참고용이며, 우회/문의 안내만 있을 경우 '참조만' 하고 -참조란 안내 전화번호 사이트만을 반영하는것을 말합니다   "
+            "반드시 기억검색 근거를 우선 반영하세요. 근거가 없으면 그 사실을 명시." + extra_note
         )
         sections.append("[통합지침]\n" + merge_instruction)
 
