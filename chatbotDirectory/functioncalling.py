@@ -201,6 +201,7 @@ def search_internet(user_input: str, chat_context=None) -> str:
         if not content_block:
             return "❌ GPT 응답 내 output_text 항목을 찾을 수 없습니다."
         output_text = getattr(content_block, "text", "").strip()
+        print(f"[WEB][DEBUG] LLM output_text:\n{output_text}")
         annotations = getattr(content_block, "annotations", [])
         citations = []
         for a in annotations:
@@ -390,9 +391,11 @@ def get_halla_cafeteria_menu(date: Optional[str] = None, meal: Optional[str] = N
         if not val:
             out = header + f"\n- {meal}: 정보 없음 (페이지 구조 변경 또는 해당 끼니 미운영)\n원문: {url}"
             print(f"[CAF][END] elapsed={time.time()-t0:.2f}s meal-miss")
+            print(f"[CAF][DEBUG] LLM output_text:\n{out}")
             return out
         out = header + f"\n- {meal}: {val}\n원문: {url}"
         print(f"[CAF][END] elapsed={time.time()-t0:.2f}s meal-hit")
+        print(f"[CAF][DEBUG] LLM output_text:\n{out}")
         return out
 
     # 3끼 모두 반환
@@ -402,6 +405,7 @@ def get_halla_cafeteria_menu(date: Optional[str] = None, meal: Optional[str] = N
         lines_out.append(f"- {k}: {v if v else '정보 없음'}")
     out = header + "\n" + "\n".join(lines_out) + f"\n원문: {url}"
     print(f"[CAF][END] elapsed={time.time()-t0:.2f}s all-meals")
+    print(f"[CAF][DEBUG] LLM output_text:\n{out}")
     return out
 
 class FunctionCalling:
