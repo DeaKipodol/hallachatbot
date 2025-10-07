@@ -45,24 +45,8 @@ chatbot = ChatbotStream(
 # 채팅
 class Message(BaseModel):
     message: str
-
-@router.post("/chat")
-async def chat(message: Message):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1",
-            messages=[
-                {"role": "user", "content": message.message}
-            ],
-
-        )
-        answer = response.choices[0].message.content
-        return {"response": answer.strip()}
-    except Exception as e:
-        print(f"OpenAI API error: {e}")  
-        raise HTTPException(status_code=500, detail=str(e))
     
-@router.post("/stream-chat")
+@router.post("/chat")
 async def stream_chat(user_input: UserRequest):
     # 1) 사용자 메시지를 원본 문맥에 추가
     chatbot.add_user_message_in_context(user_input.message)
@@ -74,6 +58,9 @@ async def stream_chat(user_input: UserRequest):
         "VI": "Vui lòng trả lời bằng tiếng Việt một cách nhẹ nhàng.",
         "JPN": "日本語で丁寧に温かく答えてください。",
         "CHN": "请用中文亲切地回答。",
+        "UZB": "Iltimos, o‘zbek tilida samimiy va hurmat bilan javob bering.",
+        "MNG": "Монгол хэлээр эелдэг, дулаахан хариулна уу.",
+        "IDN": "Tolong jawab dengan ramah dan hangat dalam bahasa Indonesia."
     }
     instruction = instruction_map.get(user_input.language, instruction_map["KOR"])
     chatbot.context[-1]["content"] += " " + instruction
@@ -417,32 +404,32 @@ async def stream_chat(user_input: UserRequest):
             loading = True
             for event in stream:
                 match event.type:
-                    case "response.created":
-                        loading = True
-                        yield "⏳ GPT가 응답을 준비 중입니다..."
-                        await asyncio.sleep(0)
+                    # case "response.created":
+                    #     loading = True
+                    #     yield "⏳ GPT가 응답을 준비 중입니다..."
+                    #     await asyncio.sleep(0)
                     case "response.output_text.delta":
-                        if loading:
-                            yield "\n[� 응답 시작됨 ↓]"
-                            loading = False
+                        # if loading:
+                        #     yield "\n[� 응답 시작됨 ↓]"
+                        #     loading = False
                         yield f"{event.delta}"
                         await asyncio.sleep(0)
-                    case "response.in_progress":
-                        yield "\n[🌀 응답 생성 중...]\n"
+                    # case "response.in_progress":
+                    #     yield "\n[🌀 응답 생성 중...]\n"
                     case "response.output_item.done":
                         item = event.item
                         if item.type == "message" and item.role == "assistant":
                             for part in item.content:
                                 if getattr(part, "type", None) == "output_text":
                                     completed_text = part.text
-                    case "response.completed":
-                        yield "\n"
-                    case "response.failed":
-                        yield "❌ 응답 생성 실패"
-                    case "error":
-                        yield "⚠️ 스트리밍 중 에러 발생!"
-                    case _:
-                        yield f"\n[📬 기타 이벤트 감지: {event.type}]"
+                    # case "response.completed":
+                    #     yield "\n"
+                    # case "response.failed":
+                    #     yield "❌ 응답 생성 실패"
+                    # case "error":
+                    #     yield "⚠️ 스트리밍 중 에러 발생!"
+                    # case _:
+                    #     yield f"\n[📬 기타 이벤트 감지: {event.type}]"
         except Exception as e:
             yield f"\nStream Error: {str(e)}"
         finally:
@@ -451,4 +438,3 @@ async def stream_chat(user_input: UserRequest):
             print(context_to_stream)
 
     return StreamingResponse(generate_with_tool(), media_type="text/plain")
-
