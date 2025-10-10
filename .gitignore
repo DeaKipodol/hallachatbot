@@ -11,3 +11,5 @@ wheels/
 
 # Environment files
 apikey.env
+apikey.env.zip
+*.env.zip
