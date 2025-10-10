@@ -975,7 +975,7 @@ if __name__ == "__main__":
                             if m:
                                 date_pref = m.group(1)
                         caf_args = {"date": date_pref, "meal": meal_pref}
-                        from chatbotDirectory.functioncalling import get_halla_cafeteria_menu
+                        from app.ai.functions.analyzer import get_halla_cafeteria_menu
                         caf_out = get_halla_cafeteria_menu(**caf_args)
                         # 메시지 형태로 삽입하여 모델이 근거로 활용
                         call_id = "cafeteria_auto"
