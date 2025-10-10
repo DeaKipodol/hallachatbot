@@ -15,7 +15,6 @@ tools = [
             "type": "function",
             "name": "search_internet",
             "description": "Searches the internet based on user input and retrieves relevant information",
-            "strict": True,
             "parameters": {
                 "type": "object",
                 "required": [
@@ -34,7 +33,6 @@ tools = [
             "type": "function",
             "name": "get_halla_cafeteria_menu",
             "description": "원주 한라대학교 학생식당의 메뉴를 궁금해 하면 이 함수를 호출하세요. 주간 식단 페이지에서 특정 날짜/끼니의 메뉴를 추출합니다.",
-            "strict": True,
             "parameters": {
                 "type": "object",
                 "required": ["date"],
